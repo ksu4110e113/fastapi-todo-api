@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi.responses import RedirectResponse
 import database
 
 app = FastAPI()
@@ -34,3 +35,8 @@ def delete_task(task_id: int):
     if success:
         return {"message": "Task deleted"}
     raise HTTPException(status_code=404, detail="Task not found")
+
+@app.get("/")
+def root():
+    return RedirectResponse(url="/docs")
+
