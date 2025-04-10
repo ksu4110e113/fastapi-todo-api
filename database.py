@@ -1,56 +1,76 @@
 import sqlite3
-import os
+from contextlib import closing, contextmanager
+from pathlib import Path
 
 DB_NAME = "todo.db"
 
+@contextmanager
+def get_conn():
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT
+    Path(DB_NAME).touch(exist_ok=True)
+    with get_conn() as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT
+            )
+            """
         )
-    ''')
-    conn.commit()
-    conn.close()
+        conn.commit()
 
-def get_all_tasks():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, description FROM tasks")
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"id": row[0], "title": row[1], "description": row[2]} for row in rows]
+# ---------- CRUD helpers ----------
 
-def add_task(title, description):
-    print("🔍 資料庫路徑：", os.path.abspath(DB_NAME))
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO tasks (title, description) VALUES (?, ?)", (title, description))
-    conn.commit()
-    task_id = cursor.lastrowid
-    cursor.execute("SELECT * FROM tasks")
-    print("📝 資料庫內容：", cursor.fetchall())
-    conn.close()
-    return {"id": task_id, "title": title, "description": description}
+def _row_to_dict(row: tuple) -> dict:
+    return {"id": row[0], "title": row[1], "description": row[2]}
 
-def get_task_by_id(task_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, description FROM tasks WHERE id = ?", (task_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return {"id": row[0], "title": row[1], "description": row[2]}
-    return None
 
-def delete_task(task_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    conn.commit()
-    affected = cursor.rowcount
-    conn.close()
-    return affected > 0
+def add_task(title: str, description: str) -> dict:
+    with get_conn() as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            "INSERT INTO tasks (title, description) VALUES (?, ?)",
+            (title, description),
+        )
+        conn.commit()
+        return {"id": cur.lastrowid, "title": title, "description": description}
+
+
+def get_all_tasks() -> list[dict]:
+    with get_conn() as conn, closing(conn.cursor()) as cur:
+        cur.execute("SELECT id, title, description FROM tasks")
+        return [_row_to_dict(r) for r in cur.fetchall()]
+
+
+def get_task_by_id(task_id: int) -> dict | None:
+    with get_conn() as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            "SELECT id, title, description FROM tasks WHERE id = ?", (task_id,)
+        )
+        row = cur.fetchone()
+        return _row_to_dict(row) if row else None
+
+
+def update_task(task_id: int, title: str, description: str) -> dict | None:
+    with get_conn() as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            "UPDATE tasks SET title = ?, description = ? WHERE id = ?",
+            (title, description, task_id),
+        )
+        conn.commit()
+        if cur.rowcount:
+            return {"id": task_id, "title": title, "description": description}
+        return None
+
+
+def delete_task(task_id: int) -> bool:
+    with get_conn() as conn, closing(conn.cursor()) as cur:
+        cur.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        return bool(cur.rowcount)
