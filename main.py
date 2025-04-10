@@ -9,6 +9,10 @@ class Task(BaseModel):
     title: str
     description: str = ""
 
+@app.get("/")
+def root():
+    return {"message": "API is running! Visit /docs for Swagger UI"}
+
 @app.get("/tasks")
 def get_tasks():
     return database.get_all_tasks()
